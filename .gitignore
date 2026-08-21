@@ -1,0 +1,9 @@
+logs/
+__pycache__/
+*.pyc
+
+# パイプラインA
+cli/
+state/
+archive/*
+!archive/.gitkeep
