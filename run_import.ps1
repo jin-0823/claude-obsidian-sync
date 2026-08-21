@@ -4,10 +4,13 @@
 # 成功時: 対象ZIPを archive\ に移動し、state\processed_zips.json に記録する。
 # 失敗時: ZIPはそのまま残す（次回実行時に再試行される）。
 #
-# 既知の問題1: nexus-cli (moment.js まわりのバグ) は、既存の会話をスキャンする際に
-# "parseDate - FAILED: ... ISO_8601" という無害な例外ログを大量に出す。
-# これは実際の失敗とは無関係なので、成功判定には使わない
-# （終了コードと "--- Import Summary ---" の Failed 件数だけを見る）。
+# 既知の問題1: [修正済み, 2026-08-21] nexus-cli は元Obsidianプラグインのコードのため
+# window.moment に依存しているが、CLIモード用の window スタブは .moment を付与しない。
+# 放置すると既存会話スキャン時に "parseDate - FAILED: ... ISO_8601" が大量に出るだけでなく、
+# 既存ノートの更新が "moment2 is not a function" で毎回失敗し、Updated が常に0になる
+# （Failed件数には計上されないため成功判定はすり抜ける）。詳細は CLAUDE.md 参照。
+# 対処として nexus_cli_window_moment_shim.js を --require で先読みし、
+# nexus-cli自身のwindowスタブより先に window.moment を注入している。
 #
 # 既知の問題2: ダウンロード直後のファイルはウイルス対策ソフト等に削除/リネームだけ
 # ロックされることがある（読み取り・コピーは通る）。そのため移動はCopy+Remove方式にし、
@@ -86,7 +89,7 @@ $hash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash
 Write-Log "Importing $fileName (sha256=$hash)"
 
 # stderr を 2>&1 で合流させる際、$ErrorActionPreference = "Stop" のままだと
-# nexus-cli が標準エラーに出す無害な例外ログ（moment.js のバグ由来）まで
+# nexus-cli / node が標準エラーに出す無害な出力（Node の DeprecationWarning 等）まで
 # 終端エラーとして扱われ、スクリプトが異常終了してしまう。この呼び出しの間だけ緩める。
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
@@ -108,7 +111,7 @@ if ($summaryMatch.Success) {
     Invoke-WithRetry { [System.IO.File]::AppendAllText($script:currentLogFile, "$nodeOutput`r`n", $noBomUtf8) }
 }
 
-# 生の nexus-cli 出力は常にログへ全文保存する（moment.js の例外ログも含む。デバッグ用）
+# 生の nexus-cli 出力は常にログへ全文保存する（デバッグ用）
 $rawLogFile = Join-Path $logDir "import_${timestamp}_raw.log"
 Invoke-WithRetry { $nodeOutput | Out-File -FilePath $rawLogFile -Encoding utf8 -ErrorAction Stop }
 
